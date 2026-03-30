@@ -1,0 +1,189 @@
+// GPU simulation kernel:
+// - Spawning on dead particles using an atomic counter (_Counters[0])
+// - Integrates velocity/position + damping + gravity
+// - Collisions: floor plane + optional spheres
+
+#pragma kernel CSClear
+#pragma kernel CSMain
+
+struct Particle
+{
+    float3 pos;
+    float3 vel;
+    float life;
+    float pad;
+};
+
+RWStructuredBuffer<Particle> _Particles;
+
+// 1 uint counter at index 0
+RWStructuredBuffer<uint> _Counters;
+
+int _MaxParticles;
+float _DeltaTime;
+float3 _Gravity;
+float _Damping;
+
+// ---- Emit params ----
+int _EmitOn;
+uint _EmitCount;
+float3 _EmitPos;
+float _EmitRadius;
+float _EmitLife;
+float _EmitSpeed;
+uint _FrameIndex;
+
+// ---- Collisions ----
+float _FloorY;
+float _Restitution;
+float _GroundFriction;
+
+// ---- spheres ----
+struct Sphere
+{
+    float3 center;
+    float radius;
+};
+StructuredBuffer<Sphere> _Spheres;
+int _SphereCount;
+
+// ---------- RNG helpers ----------
+uint Hash(uint x)
+{
+    // Wang hash
+    x = (x ^ 61u) ^ (x >> 16);
+    x *= 9u;
+    x = x ^ (x >> 4);
+    x *= 0x27d4eb2du;
+    x = x ^ (x >> 15);
+    return x;
+}
+
+float Hash01(uint x)
+{
+    return (Hash(x) & 0x00FFFFFFu) / 16777216.0;
+}
+
+float2 RandomDir2(uint seed)
+{
+    float a = Hash01(seed) * 6.28318530718;
+    return float2(cos(a), sin(a));
+}
+
+float3 ReflectVec(float3 v, float3 n)
+{
+    return v - 2.0 * dot(v, n) * n;
+}
+
+// Reset counter each frame before CSMain
+[numthreads(1, 1, 1)]
+void CSClear(uint3 id : SV_DispatchThreadID)
+{
+    _Counters[0] = 0;
+}
+
+[numthreads(256, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= (uint)_MaxParticles) return;
+
+    Particle p = _Particles[i];
+    
+    if (p.life <= 0.0 && _EmitOn == 0)
+    {
+        _Particles[i] = p;
+        return;
+    }
+
+    // ---------- Spawn GPU ----------
+    if (_EmitOn != 0 && p.life <= 0.0)
+    {
+        uint old;
+        InterlockedAdd(_Counters[0], 1u, old);
+
+        if (old < _EmitCount)
+        {
+            uint seed = (i * 9781u) ^ (_FrameIndex * 6271u);
+
+            float2 off2 = RandomDir2(seed + 1u) * (Hash01(seed + 3u) * _EmitRadius);
+            float2 dir2 = RandomDir2(seed + 2u);
+            dir2 = normalize(dir2 + 1e-6);
+
+            p.pos = _EmitPos + float3(off2.x, off2.y, 0);
+            p.vel = float3(dir2.x, dir2.y, 0) * _EmitSpeed;
+            p.life = _EmitLife;
+        }
+    }
+
+    // inactive
+    if (p.life <= 0.0)
+    {
+        _Particles[i] = p;
+        return;
+    }
+
+    // Integrate
+    p.vel += _Gravity * _DeltaTime;
+
+    // damping
+    float damp = max(0.0, 1.0 - _Damping * _DeltaTime);
+    p.vel *= damp;
+
+    p.pos += p.vel * _DeltaTime;
+
+    // ---------- COLLISION: floor plane y = _FloorY ----------
+    if (p.pos.y < _FloorY)
+    {
+        // push out of floor
+        p.pos.y = _FloorY;
+
+        // bounce only if going downward
+        if (p.vel.y < 0.0)
+        {
+            p.vel.y = -p.vel.y * _Restitution;
+
+            // ground friction on horizontal axes
+            float fr = saturate(_GroundFriction);
+            p.vel.x *= (1.0 - fr);
+            p.vel.z *= (1.0 - fr);
+        }
+    }
+
+    // ---------- COLLISION: spheres ----------
+    [loop]
+    for (int s = 0; s < _SphereCount; s++)
+    {
+        Sphere sp = _Spheres[s];
+
+        float3 d = p.pos - sp.center;
+        float dist2 = dot(d, d);
+        float r = sp.radius;
+
+        if (dist2 < r * r)
+        {
+            float dist = sqrt(max(dist2, 1e-8));
+            float3 n = d / dist; // outward normal
+
+            // push to surface
+            p.pos = sp.center + n * r;
+
+            // bounce only if going inward
+            float vn = dot(p.vel, n);
+            if (vn < 0.0)
+            {
+                p.vel = ReflectVec(p.vel, n) * _Restitution;
+            }
+        }
+    }
+
+    // Life
+    p.life -= _DeltaTime;
+    if (p.life <= 0.0)
+    {
+        p.life = 0.0;
+        p.vel = 0.0;
+    }
+
+    _Particles[i] = p;
+}
