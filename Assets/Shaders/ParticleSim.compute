@@ -6,7 +6,7 @@ struct Particle
     float3 pos;
     float3 vel;
     float life;
-    float pad;
+    float type;
 };
 
 RWStructuredBuffer<Particle> _Particles;
@@ -26,12 +26,14 @@ float _EmitRadius;
 float _EmitY;
 
 float _EmitLife;
-float _RainFallSpeed;
+float _FallSpeed;
 float _SpawnJitterY;
 float _SpeedRandomness;
 float3 _Wind;
+float _LateralRandomness;
 
 uint _FrameIndex;
+int _SpawnType;
 
 // Recycling / collisions
 float _KillBelowY;
@@ -117,13 +119,14 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             );
 
             float3 lateral = float3(
-                SignedHash01(seed + 31u) * 0.35,
+                SignedHash01(seed + 31u) * _LateralRandomness,
                 0.0,
-                SignedHash01(seed + 63u) * 0.35
+                SignedHash01(seed + 63u) * _LateralRandomness
             );
 
-            p.vel = _Wind + lateral + float3(0.0, -(_RainFallSpeed + speedJitter), 0.0);
+            p.vel = _Wind + lateral + float3(0.0, -(_FallSpeed + speedJitter), 0.0);
             p.life = _EmitLife;
+            p.type = (float)_SpawnType;
         }
     }
 
@@ -149,7 +152,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             p.vel.y = -p.vel.y * _Restitution;
             p.vel.x *= (1.0 - saturate(_GroundFriction));
             p.vel.z *= (1.0 - saturate(_GroundFriction));
-            p.life = min(p.life, 0.04);
+            p.life = min(p.life, 0.05);
         }
     }
 
@@ -188,6 +191,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     {
         p.life = 0.0;
         p.vel = 0.0;
+        p.type = 0.0;
     }
 
     _Particles[i] = p;
