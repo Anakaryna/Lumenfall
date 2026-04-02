@@ -306,7 +306,7 @@ MonoBehaviour:
   gpuParticles: {fileID: 1319107847}
   cloudRoot: {fileID: 508902976}
   cloudShuriken: {fileID: 694494659}
-  currentState: 0
+  currentState: 3
   enableDebugKeys: 1
   sunnyKey: 256
   cloudyKey: 257
@@ -964,8 +964,8 @@ MonoBehaviour:
     restitution: 0
     groundFriction: 0.95
     color: {r: 1, g: 1, b: 1, a: 0.9}
-    width: 0.045
-    length: 0.045
+    width: 0.02
+    length: 0.07
     alphaBoost: 1
   drawRainZoneGizmo: 1
 --- !u!4 &1319107848

@@ -84,7 +84,7 @@ Shader "Custom/ParticleRenderRainSnow"
                 float3 center = IN[0].posWS;
                 float3 vel = IN[0].velWS;
 
-                float3 camFwd = normalize(_WorldSpaceCameraPos.xyz - center);
+                float3 toCam = normalize(_WorldSpaceCameraPos.xyz - center);
 
                 float width = _DropWidth;
                 float lengthWS = _DropLength;
@@ -94,12 +94,15 @@ Shader "Custom/ParticleRenderRainSnow"
 
                 if (IN[0].type < 0.5)
                 {
+                    // RAIN = stretched along velocity
                     float speed = max(length(vel), 0.001);
                     float3 dir = normalize(vel);
 
-                    right = normalize(cross(camFwd, dir));
+                    right = cross(toCam, dir);
                     if (dot(right, right) < 1e-5)
                         right = float3(1, 0, 0);
+                    else
+                        right = normalize(right);
 
                     float lengthMul = saturate(speed / 18.0);
                     lengthWS = _DropLength * lerp(0.7, 1.6, lengthMul);
@@ -108,11 +111,18 @@ Shader "Custom/ParticleRenderRainSnow"
                 }
                 else
                 {
-                    right = normalize(cross(camFwd, float3(0, 1, 0)));
-                    if (dot(right, right) < 1e-5)
-                        right = float3(1, 0, 0);
+                    // SNOW = true camera-facing billboard
+                    float3 camUp = UNITY_MATRIX_I_V._m01_m11_m21;
+                    float3 camRight = UNITY_MATRIX_I_V._m00_m10_m20;
 
-                    upish = float3(0, 1, 0);
+                    camUp = normalize(camUp);
+                    camRight = normalize(camRight);
+
+                    right = camRight;
+                    upish = camUp;
+
+                    // force snow to be round/square, no stretch
+                    lengthWS = _DropWidth;
                 }
 
                 float3 halfRight = right * width;
@@ -138,13 +148,13 @@ Shader "Custom/ParticleRenderRainSnow"
 
             half4 frag(g2f i) : SV_Target
             {
-                // thin raindrop streak
                 float2 uv = i.uv;
                 float alpha;
                 float3 col = _Color.rgb;
 
                 if (i.type < 0.5)
                 {
+                    // Rain streak
                     float side = 1.0 - abs(uv.x * 2.0 - 1.0);
                     side = smoothstep(0.0, 0.8, side);
 
@@ -156,8 +166,12 @@ Shader "Custom/ParticleRenderRainSnow"
                 }
                 else
                 {
+                    // Round snowflake
                     float2 d = uv * 2.0 - 1.0;
                     float r = length(d);
+
+                    if (r > 1.0)
+                        discard;
 
                     alpha = 1.0 - smoothstep(0.55, 1.0, r);
 
