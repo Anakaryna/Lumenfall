@@ -11,6 +11,39 @@ using UnityEngine.Rendering;
 /// </summary>
 public class GpuParticles : MonoBehaviour
 {
+    public enum PrecipitationType
+    {
+        Rain = 0,
+        Snow = 1
+    }
+
+    [System.Serializable]
+    public class PrecipitationSettings
+    {
+        [Header("Spawn")]
+        public int spawnPerFrame = 1200;
+        public float spawnLife = 2.8f;
+        public float fallSpeed = 18f;
+        public float spawnJitterY = 0.15f;
+        public float speedRandomness = 2.5f;
+
+        [Header("Motion")]
+        public Vector3 wind = new Vector3(1.0f, 0f, 0.25f);
+        public Vector3 gravity = new Vector3(0f, -28f, 0f);
+        [Range(0f, 10f)] public float damping = 0.05f;
+        public float lateralRandomness = 0.35f;
+
+        [Header("Ground")]
+        [Range(0f, 1f)] public float restitution = 0.02f;
+        [Range(0f, 1f)] public float groundFriction = 0.35f;
+
+        [Header("Rendering")]
+        public Color color = new Color(0.72f, 0.82f, 0.95f, 0.22f);
+        public float width = 0.012f;
+        public float length = 0.20f;
+        public float alphaBoost = 1.0f;
+    }
+
     [Header("Refs")]
     public ComputeShader simCS;
     public Material renderMat;
@@ -18,61 +51,67 @@ public class GpuParticles : MonoBehaviour
     [Header("Capacity")]
     [Min(1)] public int maxParticles = 100_000;
 
-    [Header("Rain Emitter (cloud zone)")]
-    [Tooltip("Place this transform inside your cloud. Rain spawns below it.")]
+    [Header("Emitter Zone")]
     public Transform rainZone;
-
-    [Tooltip("Horizontal radius of the rain emission disc.")]
-    [Min(0.01f)] public float rainRadius = 6f;
-
-    [Tooltip("Optional scale multiplier from the rainZone transform X/Z scale.")]
+    [Min(0.01f)] public float zoneRadius = 6f;
     public bool useRainZoneScale = true;
-
-    [Tooltip("Cloud thickness. Rain emits from the bottom of this thickness.")]
     [Min(0f)] public float cloudThickness = 2f;
 
-    [Tooltip("Automatically emit every frame.")]
+    [Header("General")]
     public bool emitContinuously = true;
-
-    [Tooltip("How many new drops to try to spawn per frame.")]
-    public int spawnPerFrame = 1200;
-
-    [Tooltip("Lifetime of each rain particle.")]
-    public float spawnLife = 2.8f;
-
-    [Tooltip("Base falling speed at spawn.")]
-    public float rainFallSpeed = 18f;
-
-    [Tooltip("Random vertical jitter at emission.")]
-    public float spawnJitterY = 0.15f;
-
-    [Tooltip("Extra random speed variation.")]
-    public float speedRandomness = 2.5f;
-
-    [Header("Weather")]
-    public Vector3 wind = new Vector3(1.0f, 0f, 0.25f);
-    public Vector3 gravity = new Vector3(0f, -28f, 0f);
-    [Range(0f, 10f)] public float damping = 0.05f;
+    public bool systemVisible = true;
+    public PrecipitationType precipitationType = PrecipitationType.Rain;
 
     [Header("Recycling")]
-    [Tooltip("When a particle goes below this Y, it dies and can be respawned.")]
     public float killBelowY = -2f;
 
     [Header("Floor Collision")]
     public bool collideWithFloor = true;
     public float floorY = 0f;
-    [Range(0f, 1f)] public float restitution = 0.02f;
-    [Range(0f, 1f)] public float groundFriction = 0.35f;
 
     [Header("Collision Spheres")]
     [Tooltip("Optional simple colliders: each Vector4 = (x,y,z,r)")]
     public Vector4[] spheres = new Vector4[0];
 
-    [Header("Rendering")]
-    public Color rainColor = new Color(0.72f, 0.82f, 0.95f, 0.22f);
-    public float dropWidth = 0.012f;
-    public float dropLength = 0.20f;
-    public float alphaBoost = 1.0f;
+    [Header("Rain Settings")]
+    public PrecipitationSettings rain = new PrecipitationSettings
+    {
+        spawnPerFrame = 1200,
+        spawnLife = 2.8f,
+        fallSpeed = 18f,
+        spawnJitterY = 0.15f,
+        speedRandomness = 2.5f,
+        wind = new Vector3(1.0f, 0f, 0.25f),
+        gravity = new Vector3(0f, -28f, 0f),
+        damping = 0.05f,
+        lateralRandomness = 0.35f,
+        restitution = 0.02f,
+        groundFriction = 0.35f,
+        color = new Color(0.72f, 0.82f, 0.95f, 0.22f),
+        width = 0.012f,
+        length = 0.20f,
+        alphaBoost = 1.0f
+    };
+
+    [Header("Snow Settings")]
+    public PrecipitationSettings snow = new PrecipitationSettings
+    {
+        spawnPerFrame = 900,
+        spawnLife = 8.0f,
+        fallSpeed = 1.2f,
+        spawnJitterY = 0.35f,
+        speedRandomness = 0.35f,
+        wind = new Vector3(0.35f, 0f, 0.12f),
+        gravity = new Vector3(0f, -1.2f, 0f),
+        damping = 1.2f,
+        lateralRandomness = 0.75f,
+        restitution = 0.0f,
+        groundFriction = 0.95f,
+        color = new Color(1f, 1f, 1f, 0.9f),
+        width = 0.035f,
+        length = 0.035f,
+        alphaBoost = 1.0f
+    };
 
     [Header("Debug")]
     public bool drawRainZoneGizmo = true;
@@ -93,7 +132,7 @@ public class GpuParticles : MonoBehaviour
         public Vector3 pos;
         public Vector3 vel;
         public float life;
-        public float pad;
+        public float type;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -102,6 +141,44 @@ public class GpuParticles : MonoBehaviour
         public Vector3 center;
         public float radius;
     }
+
+    public void SetVisible(bool visible)
+    {
+        systemVisible = visible;
+    }
+
+    public void SetPrecipitationType(PrecipitationType type)
+    {
+        precipitationType = type;
+    }
+
+    public void StopEmission()
+    {
+        emitContinuously = false;
+    }
+
+    public void StartEmission()
+    {
+        emitContinuously = true;
+    }
+
+    public void ClearParticlesNow()
+    {
+        if (particleBuffer == null) return;
+
+        var init = new Particle[maxParticles];
+        for (int i = 0; i < maxParticles; i++)
+        {
+            init[i].pos = Vector3.zero;
+            init[i].vel = Vector3.zero;
+            init[i].life = 0f;
+            init[i].type = 0f;
+        }
+        particleBuffer.SetData(init);
+    }
+
+    PrecipitationSettings ActiveSettings =>
+        precipitationType == PrecipitationType.Rain ? rain : snow;
 
     void Start()
     {
@@ -131,7 +208,7 @@ public class GpuParticles : MonoBehaviour
             init[i].pos = Vector3.zero;
             init[i].vel = Vector3.zero;
             init[i].life = 0f;
-            init[i].pad = 0f;
+            init[i].type = 0f;
         }
         particleBuffer.SetData(init);
 
@@ -181,12 +258,14 @@ public class GpuParticles : MonoBehaviour
 
     void Update()
     {
+        if (particleBuffer == null || simCS == null || renderMat == null) return;
+
         simCS.Dispatch(clearKernel, 1, 1, 1);
 
         Transform t = rainZone ? rainZone : transform;
         Vector3 zoneCenter = t.position;
 
-        float finalRadius = rainRadius;
+        float finalRadius = zoneRadius;
         float finalThickness = cloudThickness;
 
         if (rainZone && useRainZoneScale)
@@ -199,27 +278,31 @@ public class GpuParticles : MonoBehaviour
 
         float emitY = zoneCenter.y - finalThickness * 0.5f;
 
-        simCS.SetInt("_EmitOn", emitContinuously ? 1 : 0);
-        simCS.SetInt("_EmitCount", emitContinuously ? spawnPerFrame : 0);
+        PrecipitationSettings sActive = ActiveSettings;
+
+        simCS.SetInt("_EmitOn", (systemVisible && emitContinuously) ? 1 : 0);
+        simCS.SetInt("_EmitCount", (systemVisible && emitContinuously) ? sActive.spawnPerFrame : 0);
 
         simCS.SetVector("_EmitCenter", zoneCenter);
         simCS.SetFloat("_EmitRadius", finalRadius);
         simCS.SetFloat("_EmitY", emitY);
-        simCS.SetFloat("_EmitLife", spawnLife);
-        simCS.SetFloat("_RainFallSpeed", rainFallSpeed);
-        simCS.SetFloat("_SpawnJitterY", spawnJitterY);
-        simCS.SetFloat("_SpeedRandomness", speedRandomness);
-        simCS.SetVector("_Wind", wind);
+        simCS.SetFloat("_EmitLife", sActive.spawnLife);
+        simCS.SetFloat("_FallSpeed", sActive.fallSpeed);
+        simCS.SetFloat("_SpawnJitterY", sActive.spawnJitterY);
+        simCS.SetFloat("_SpeedRandomness", sActive.speedRandomness);
+        simCS.SetVector("_Wind", sActive.wind);
+        simCS.SetVector("_Gravity", sActive.gravity);
+        simCS.SetFloat("_Damping", sActive.damping);
+        simCS.SetFloat("_LateralRandomness", sActive.lateralRandomness);
         simCS.SetInt("_FrameIndex", (int)frameIndex++);
+        simCS.SetInt("_SpawnType", precipitationType == PrecipitationType.Rain ? 0 : 1);
 
         simCS.SetFloat("_DeltaTime", Time.deltaTime);
-        simCS.SetVector("_Gravity", gravity);
-        simCS.SetFloat("_Damping", damping);
 
         simCS.SetInt("_UseFloor", collideWithFloor ? 1 : 0);
         simCS.SetFloat("_FloorY", floorY);
-        simCS.SetFloat("_Restitution", restitution);
-        simCS.SetFloat("_GroundFriction", groundFriction);
+        simCS.SetFloat("_Restitution", sActive.restitution);
+        simCS.SetFloat("_GroundFriction", sActive.groundFriction);
         simCS.SetFloat("_KillBelowY", killBelowY);
 
         simCS.SetInt("_SphereCount", (sphereBuffer != null) ? sphereBuffer.count : 0);
@@ -227,13 +310,16 @@ public class GpuParticles : MonoBehaviour
         int groups = Mathf.CeilToInt(maxParticles / (float)THREADS_X);
         simCS.Dispatch(kernel, groups, 1, 1);
 
-        renderMat.SetFloat("_DropWidth", dropWidth);
-        renderMat.SetFloat("_DropLength", dropLength);
-        renderMat.SetColor("_Color", rainColor);
-        renderMat.SetFloat("_AlphaBoost", alphaBoost);
+        if (systemVisible)
+        {
+            renderMat.SetFloat("_DropWidth", sActive.width);
+            renderMat.SetFloat("_DropLength", sActive.length);
+            renderMat.SetColor("_Color", sActive.color);
+            renderMat.SetFloat("_AlphaBoost", sActive.alphaBoost);
 
-        var bounds = new Bounds(zoneCenter, Vector3.one * 10000f);
-        Graphics.DrawProcedural(renderMat, bounds, MeshTopology.Points, 1, maxParticles);
+            var bounds = new Bounds(zoneCenter, Vector3.one * 10000f);
+            Graphics.DrawProcedural(renderMat, bounds, MeshTopology.Points, 1, maxParticles);
+        }
     }
 
     void OnDrawGizmosSelected()
@@ -242,7 +328,7 @@ public class GpuParticles : MonoBehaviour
 
         Transform t = rainZone ? rainZone : transform;
 
-        float finalRadius = rainRadius;
+        float finalRadius = zoneRadius;
         float finalThickness = cloudThickness;
 
         if (rainZone && useRainZoneScale)

@@ -1,10 +1,10 @@
-Shader "Custom/ParticleRenderRain"
+Shader "Custom/ParticleRenderRainSnow"
 {
     Properties
     {
         _DropWidth ("Drop Width", Float) = 0.012
         _DropLength ("Drop Length", Float) = 0.20
-        _Color ("Rain Color", Color) = (0.72,0.82,0.95,0.22)
+        _Color ("Color", Color) = (0.72,0.82,0.95,0.22)
         _AlphaBoost ("Alpha Boost", Float) = 1.0
     }
 
@@ -38,7 +38,7 @@ Shader "Custom/ParticleRenderRain"
                 float3 pos;
                 float3 vel;
                 float life;
-                float pad;
+                float type;
             };
 
             StructuredBuffer<Particle> _Particles;
@@ -52,15 +52,17 @@ Shader "Custom/ParticleRenderRain"
             {
                 float3 posWS : TEXCOORD0;
                 float3 velWS : TEXCOORD1;
-                float  life  : TEXCOORD2;
+                float life : TEXCOORD2;
+                float type : TEXCOORD3;
             };
 
             struct g2f
             {
                 float4 posCS : SV_POSITION;
-                float2 uv    : TEXCOORD0;
-                float  life  : TEXCOORD1;
+                float2 uv : TEXCOORD0;
+                float life : TEXCOORD1;
                 float3 velWS : TEXCOORD2;
+                float type : TEXCOORD3;
             };
 
             v2g vert(appdata v)
@@ -70,6 +72,7 @@ Shader "Custom/ParticleRenderRain"
                 o.posWS = p.pos;
                 o.velWS = p.vel;
                 o.life = p.life;
+                o.type = p.type;
                 return o;
             }
 
@@ -81,31 +84,59 @@ Shader "Custom/ParticleRenderRain"
                 float3 center = IN[0].posWS;
                 float3 vel = IN[0].velWS;
 
-                float speed = max(length(vel), 0.001);
-                float3 dir = normalize(vel);
-
-                float3 camFwd = normalize(_WorldSpaceCameraPos.xyz - center);
-                float3 right = normalize(cross(camFwd, dir));
-
-                // if dir and cam are too parallel, fallback
-                if (dot(right, right) < 1e-5)
-                    right = float3(1, 0, 0);
+                float3 toCam = normalize(_WorldSpaceCameraPos.xyz - center);
 
                 float width = _DropWidth;
-                float lengthMul = saturate(speed / 18.0);
-                float lengthWS = _DropLength * lerp(0.7, 1.6, lengthMul);
+                float lengthWS = _DropLength;
+
+                float3 right;
+                float3 upish;
+
+                if (IN[0].type < 0.5)
+                {
+                    // RAIN = stretched along velocity
+                    float speed = max(length(vel), 0.001);
+                    float3 dir = normalize(vel);
+
+                    right = cross(toCam, dir);
+                    if (dot(right, right) < 1e-5)
+                        right = float3(1, 0, 0);
+                    else
+                        right = normalize(right);
+
+                    float lengthMul = saturate(speed / 18.0);
+                    lengthWS = _DropLength * lerp(0.7, 1.6, lengthMul);
+
+                    upish = dir;
+                }
+                else
+                {
+                    // SNOW = true camera-facing billboard
+                    float3 camUp = UNITY_MATRIX_I_V._m01_m11_m21;
+                    float3 camRight = UNITY_MATRIX_I_V._m00_m10_m20;
+
+                    camUp = normalize(camUp);
+                    camRight = normalize(camRight);
+
+                    right = camRight;
+                    upish = camUp;
+
+                    // force snow to be round/square, no stretch
+                    lengthWS = _DropWidth;
+                }
 
                 float3 halfRight = right * width;
-                float3 halfDir = dir * lengthWS * 0.5;
+                float3 halfUp = upish * (lengthWS * 0.5);
 
-                float3 p0 = center - halfRight - halfDir;
-                float3 p1 = center + halfRight - halfDir;
-                float3 p2 = center - halfRight + halfDir;
-                float3 p3 = center + halfRight + halfDir;
+                float3 p0 = center - halfRight - halfUp;
+                float3 p1 = center + halfRight - halfUp;
+                float3 p2 = center - halfRight + halfUp;
+                float3 p3 = center + halfRight + halfUp;
 
                 g2f o;
                 o.life = IN[0].life;
                 o.velWS = vel;
+                o.type = IN[0].type;
 
                 o.uv = float2(0, 0); o.posCS = UnityWorldToClipPos(float4(p0, 1)); triStream.Append(o);
                 o.uv = float2(1, 0); o.posCS = UnityWorldToClipPos(float4(p1, 1)); triStream.Append(o);
@@ -117,25 +148,39 @@ Shader "Custom/ParticleRenderRain"
 
             half4 frag(g2f i) : SV_Target
             {
-                // thin raindrop streak
                 float2 uv = i.uv;
-
-                // soft side fade
-                float side = 1.0 - abs(uv.x * 2.0 - 1.0);
-                side = smoothstep(0.0, 0.8, side);
-
-                // top/bottom fade
-                float along = sin(uv.y * 3.14159265);
-                along = saturate(along);
-
-                float alpha = side * along;
-                alpha *= saturate(i.life * 2.0);
-                alpha *= _Color.a * _AlphaBoost;
-
+                float alpha;
                 float3 col = _Color.rgb;
 
-                // slightly brighter center
-                col *= lerp(0.85, 1.15, side);
+                if (i.type < 0.5)
+                {
+                    // Rain streak
+                    float side = 1.0 - abs(uv.x * 2.0 - 1.0);
+                    side = smoothstep(0.0, 0.8, side);
+
+                    float along = sin(uv.y * 3.14159265);
+                    along = saturate(along);
+
+                    alpha = side * along;
+                    col *= lerp(0.85, 1.15, side);
+                }
+                else
+                {
+                    // Round snowflake
+                    float2 d = uv * 2.0 - 1.0;
+                    float r = length(d);
+
+                    if (r > 1.0)
+                        discard;
+
+                    alpha = 1.0 - smoothstep(0.55, 1.0, r);
+
+                    float softCore = 1.0 - smoothstep(0.0, 0.65, r);
+                    col *= lerp(0.95, 1.15, softCore);
+                }
+
+                alpha *= saturate(i.life * 2.0);
+                alpha *= _Color.a * _AlphaBoost;
 
                 return half4(col, alpha);
             }
