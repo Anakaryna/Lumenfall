@@ -1,81 +1,81 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 using System.Runtime.InteropServices;
-using Unity.Collections;
 using UnityEngine.Rendering;
 
 /// <summary>
-/// GPU-based particle system with compute shader simulation and procedural rendering.
-/// Supports mouse emission, gravity, damping, floor and sphere collisions, and a height-based color gradient.
-/// Also includes optional CPU-side analysis of particle data via async GPU readback (min/max/avg height, histogram).
+/// GPU rain particle system:
+/// - 3D rain emission inside a horizontal circular zone
+/// - Downward rain with optional wind
+/// - Floor + sphere collisions
+/// - Procedural rendering as transparent rain streaks
 /// </summary>
 public class GpuParticles : MonoBehaviour
 {
     [Header("Refs")]
-    public Camera cam;
     public ComputeShader simCS;
     public Material renderMat;
 
     [Header("Capacity")]
     [Min(1)] public int maxParticles = 100_000;
 
-    [Header("Spawn (hold left click)")]
-    public int spawnPerFrameWhileHeld = 200;
-    public float spawnLife = 1.25f;
-    public float spawnSpeed = 3.0f;
-    public float spawnRadius = 0.05f;
+    [Header("Rain Emitter (cloud zone)")]
+    [Tooltip("Place this transform inside your cloud. Rain spawns below it.")]
+    public Transform rainZone;
 
-    [Header("Simulation")]
-    public Vector3 gravity = new Vector3(0, -2.5f, 0);
-    [Range(0f, 10f)] public float damping = 0.15f;
+    [Tooltip("Horizontal radius of the rain emission disc.")]
+    [Min(0.01f)] public float rainRadius = 6f;
 
-    [Header("Collisions (floor)")]
+    [Tooltip("Optional scale multiplier from the rainZone transform X/Z scale.")]
+    public bool useRainZoneScale = true;
+
+    [Tooltip("Cloud thickness. Rain emits from the bottom of this thickness.")]
+    [Min(0f)] public float cloudThickness = 2f;
+
+    [Tooltip("Automatically emit every frame.")]
+    public bool emitContinuously = true;
+
+    [Tooltip("How many new drops to try to spawn per frame.")]
+    public int spawnPerFrame = 1200;
+
+    [Tooltip("Lifetime of each rain particle.")]
+    public float spawnLife = 2.8f;
+
+    [Tooltip("Base falling speed at spawn.")]
+    public float rainFallSpeed = 18f;
+
+    [Tooltip("Random vertical jitter at emission.")]
+    public float spawnJitterY = 0.15f;
+
+    [Tooltip("Extra random speed variation.")]
+    public float speedRandomness = 2.5f;
+
+    [Header("Weather")]
+    public Vector3 wind = new Vector3(1.0f, 0f, 0.25f);
+    public Vector3 gravity = new Vector3(0f, -28f, 0f);
+    [Range(0f, 10f)] public float damping = 0.05f;
+
+    [Header("Recycling")]
+    [Tooltip("When a particle goes below this Y, it dies and can be respawned.")]
+    public float killBelowY = -2f;
+
+    [Header("Floor Collision")]
+    public bool collideWithFloor = true;
     public float floorY = 0f;
-    [Range(0f, 1f)] public float restitution = 0.6f;
-    [Range(0f, 1f)] public float groundFriction = 0.05f;
+    [Range(0f, 1f)] public float restitution = 0.02f;
+    [Range(0f, 1f)] public float groundFriction = 0.35f;
 
-    [Header("Collisions (spheres)")]
-    [Tooltip("Each Vector4 = (x,y,z,r)")]
-    public Vector4[] spheres = new Vector4[]
-    {
-        new Vector4(0f, 0f, 0f, 1.5f),
-    };
+    [Header("Collision Spheres")]
+    [Tooltip("Optional simple colliders: each Vector4 = (x,y,z,r)")]
+    public Vector4[] spheres = new Vector4[0];
 
-    [Header("Render - Height Gradient (GPU)")]
-    public bool useHeightGradient = false;
-    public float gradientMinY = 0f;
-    public float gradientMaxY = 3f;
-    public Color lowColor = new Color(0f, 0.6f, 1f, 1f);
-    public Color highColor = new Color(1f, 0.2f, 0.2f, 1f);
+    [Header("Rendering")]
+    public Color rainColor = new Color(0.72f, 0.82f, 0.95f, 0.22f);
+    public float dropWidth = 0.012f;
+    public float dropLength = 0.20f;
+    public float alphaBoost = 1.0f;
 
-    // =========================
-    // CPU ANALYSIS
-    // While GPU sim runs, we can also read back a small sample of particles to do CPU-side analysis (min/max/avg, histogram, etc).
-    // =========================
-    [Header("CPU Analysis")]
-    public bool enableCpuAnalysis = true;
-
-    [Tooltip("How often (seconds) we request an async GPU readback for analysis.")]
-    [Range(0.05f, 2f)] public float analysisInterval = 0.25f;
-
-    [Tooltip("How many particles to sample for CPU stats.")]
-    [Range(128, 8192)] public int analysisSampleCount = 2048;
-
-    [Tooltip("Histogram buckets for particle height (Y).")]
-    [Range(8, 64)] public int histogramBins = 16;
-
-    [Tooltip("Height range for histogram (Y).")]
-    public float histMinY = 0f;
-    public float histMaxY = 3f;
-
-    // Analysis results
-    float cpuMinY, cpuMaxY, cpuAvgY;
-    int[] cpuHistogram;
-    uint lastSpawnedThisFrame;
-    int lastSampleUsed;
-    float lastAnalysisMs;
-    float nextAnalysisTime;
-    bool readbackInFlight;
+    [Header("Debug")]
+    public bool drawRainZoneGizmo = true;
 
     ComputeBuffer particleBuffer;
     ComputeBuffer counterBuffer;
@@ -103,28 +103,18 @@ public class GpuParticles : MonoBehaviour
         public float radius;
     }
 
-    void Reset()
-    {
-        cam = Camera.main;
-    }
-
-    /// <summary>
-    /// Initialize buffers and shader bindings.
-    /// </summary>
     void Start()
     {
-        if (cam == null) cam = Camera.main;
-
         if (simCS == null)
         {
-            Debug.LogError("GpuParticles: Missing ComputeShader (simCS).");
+            Debug.LogError("GpuParticles: Missing ComputeShader.");
             enabled = false;
             return;
         }
 
         if (renderMat == null)
         {
-            Debug.LogError("GpuParticles: Missing render Material (renderMat).");
+            Debug.LogError("GpuParticles: Missing render material.");
             enabled = false;
             return;
         }
@@ -135,7 +125,6 @@ public class GpuParticles : MonoBehaviour
         int stride = Marshal.SizeOf(typeof(Particle));
         particleBuffer = new ComputeBuffer(maxParticles, stride, ComputeBufferType.Structured);
 
-        // Init particles once
         var init = new Particle[maxParticles];
         for (int i = 0; i < maxParticles; i++)
         {
@@ -146,31 +135,20 @@ public class GpuParticles : MonoBehaviour
         }
         particleBuffer.SetData(init);
 
-        // Counter buffer (1 uint)
         counterBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Structured);
         counterBuffer.SetData(new uint[] { 0 });
 
-        // Bind to render
         renderMat.SetBuffer("_Particles", particleBuffer);
 
-        // Bind to compute
         simCS.SetBuffer(kernel, "_Particles", particleBuffer);
         simCS.SetBuffer(clearKernel, "_Counters", counterBuffer);
         simCS.SetBuffer(kernel, "_Counters", counterBuffer);
 
         simCS.SetInt("_MaxParticles", maxParticles);
 
-        // spheres
         UploadSpheres();
-
-        // CPU analysis init
-        cpuHistogram = new int[Mathf.Max(1, histogramBins)];
-        nextAnalysisTime = Time.time + analysisInterval;
     }
 
-    /// <summary>
-    /// Upload sphere collision data to GPU.
-    /// </summary>
     void UploadSpheres()
     {
         if (sphereBuffer != null)
@@ -203,201 +181,101 @@ public class GpuParticles : MonoBehaviour
 
     void Update()
     {
-        // --- Mouse emit ---
-        int emitOn = 0;
-        Vector3 emitPos = Vector3.zero;
-
-        var mouse = Mouse.current;
-        if (mouse != null && mouse.leftButton.isPressed)
-        {
-            emitOn = 1;
-            Vector2 mouseScreen = mouse.position.ReadValue();
-            emitPos = GetMouseWorldOnPlaneZ0(mouseScreen);
-        }
-
-        // Reset counter on GPU each frame
         simCS.Dispatch(clearKernel, 1, 1, 1);
 
-        // Emit params
-        simCS.SetInt("_EmitOn", emitOn);
+        Transform t = rainZone ? rainZone : transform;
+        Vector3 zoneCenter = t.position;
 
-        int emitCount = 0;
-        if (emitOn == 1)
+        float finalRadius = rainRadius;
+        float finalThickness = cloudThickness;
+
+        if (rainZone && useRainZoneScale)
         {
-            bool pressedThisFrame = (mouse != null) && mouse.leftButton.wasPressedThisFrame;
-            emitCount = pressedThisFrame ? spawnPerFrameWhileHeld * 5 : spawnPerFrameWhileHeld;
+            Vector3 s = rainZone.lossyScale;
+            float horizontalScale = (Mathf.Abs(s.x) + Mathf.Abs(s.z)) * 0.5f;
+            finalRadius *= horizontalScale;
+            finalThickness *= Mathf.Abs(s.y);
         }
-        simCS.SetInt("_EmitCount", emitCount);
 
-        simCS.SetVector("_EmitPos", emitPos);
-        simCS.SetFloat("_EmitRadius", spawnRadius);
+        float emitY = zoneCenter.y - finalThickness * 0.5f;
+
+        simCS.SetInt("_EmitOn", emitContinuously ? 1 : 0);
+        simCS.SetInt("_EmitCount", emitContinuously ? spawnPerFrame : 0);
+
+        simCS.SetVector("_EmitCenter", zoneCenter);
+        simCS.SetFloat("_EmitRadius", finalRadius);
+        simCS.SetFloat("_EmitY", emitY);
         simCS.SetFloat("_EmitLife", spawnLife);
-        simCS.SetFloat("_EmitSpeed", spawnSpeed);
+        simCS.SetFloat("_RainFallSpeed", rainFallSpeed);
+        simCS.SetFloat("_SpawnJitterY", spawnJitterY);
+        simCS.SetFloat("_SpeedRandomness", speedRandomness);
+        simCS.SetVector("_Wind", wind);
         simCS.SetInt("_FrameIndex", (int)frameIndex++);
 
-        // Compute simulation params
         simCS.SetFloat("_DeltaTime", Time.deltaTime);
         simCS.SetVector("_Gravity", gravity);
         simCS.SetFloat("_Damping", damping);
 
-        // Floor collision params
+        simCS.SetInt("_UseFloor", collideWithFloor ? 1 : 0);
         simCS.SetFloat("_FloorY", floorY);
         simCS.SetFloat("_Restitution", restitution);
         simCS.SetFloat("_GroundFriction", groundFriction);
+        simCS.SetFloat("_KillBelowY", killBelowY);
 
-        // Sphere count safety
         simCS.SetInt("_SphereCount", (sphereBuffer != null) ? sphereBuffer.count : 0);
 
         int groups = Mathf.CeilToInt(maxParticles / (float)THREADS_X);
         simCS.Dispatch(kernel, groups, 1, 1);
 
-        // Render params
-        renderMat.SetFloat("_UseHeightGradient", useHeightGradient ? 1f : 0f);
-        renderMat.SetFloat("_GradientMinY", gradientMinY);
-        renderMat.SetFloat("_GradientMaxY", gradientMaxY);
-        renderMat.SetColor("_LowColor", lowColor);
-        renderMat.SetColor("_HighColor", highColor);
+        renderMat.SetFloat("_DropWidth", dropWidth);
+        renderMat.SetFloat("_DropLength", dropLength);
+        renderMat.SetColor("_Color", rainColor);
+        renderMat.SetFloat("_AlphaBoost", alphaBoost);
 
-        // Draw
-        var bounds = new Bounds(Vector3.zero, Vector3.one * 5000f);
+        var bounds = new Bounds(zoneCenter, Vector3.one * 10000f);
         Graphics.DrawProcedural(renderMat, bounds, MeshTopology.Points, 1, maxParticles);
-
-        // CPU analysis while GPU runs (async readback)
-        if (enableCpuAnalysis)
-        {
-            TickCpuAnalysis();
-        }
     }
 
-    /// <summary>
-    /// Periodically request async GPU readback of a sample of particles to compute CPU-side stats (min/max/avg height, histogram).
-    /// </summary>
-    void TickCpuAnalysis()
+    void OnDrawGizmosSelected()
     {
-        // Update bins array size if changed in inspector
-        if (cpuHistogram == null || cpuHistogram.Length != histogramBins)
-            cpuHistogram = new int[Mathf.Max(1, histogramBins)];
+        if (!drawRainZoneGizmo) return;
 
-        // Do not spam requests
-        if (Time.time < nextAnalysisTime) return;
-        if (readbackInFlight) return;
+        Transform t = rainZone ? rainZone : transform;
 
-        nextAnalysisTime = Time.time + analysisInterval;
-        readbackInFlight = true;
+        float finalRadius = rainRadius;
+        float finalThickness = cloudThickness;
 
-        // Sample count clamp
-        int sampleCount = Mathf.Clamp(analysisSampleCount, 1, maxParticles);
-        int stride = Marshal.SizeOf(typeof(Particle));
-        int byteCount = sampleCount * stride;
-
-        // We read the first N particles for simplicity
-        var t0 = Time.realtimeSinceStartup;
-
-        // 1) Readback counter
-        AsyncGPUReadback.Request(counterBuffer, (req) =>
+        if (rainZone && useRainZoneScale)
         {
-            if (!req.hasError)
-            {
-                var data = req.GetData<uint>();
-                if (data.Length > 0) lastSpawnedThisFrame = data[0];
-            }
-        });
-
-        // 2) Readback sample of particles
-        AsyncGPUReadback.Request(particleBuffer, (req) =>
-        {
-            lastAnalysisMs = (Time.realtimeSinceStartup - t0) * 1000f;
-
-            if (req.hasError)
-            {
-                readbackInFlight = false;
-                return;
-            }
-
-            var data = req.GetData<Particle>();
-
-            // sampleCount clamp
-            int count = Mathf.Min(analysisSampleCount, data.Length);
-            lastSampleUsed = count;
-
-            float minY = float.PositiveInfinity;
-            float maxY = float.NegativeInfinity;
-            double sumY = 0.0;
-
-            for (int i = 0; i < cpuHistogram.Length; i++) cpuHistogram[i] = 0;
-
-            float range = Mathf.Max(1e-5f, histMaxY - histMinY);
-
-            int aliveCount = 0;
-            for (int i = 0; i < count; i++)
-            {
-                float life = data[i].life;
-                if (life <= 0f) continue;
-
-                float y = data[i].pos.y;
-
-                minY = Mathf.Min(minY, y);
-                maxY = Mathf.Max(maxY, y);
-                sumY += y;
-                aliveCount++;
-
-                float t = Mathf.Clamp01((y - histMinY) / range);
-                int bin = Mathf.Clamp((int)(t * (cpuHistogram.Length - 1)), 0, cpuHistogram.Length - 1);
-                cpuHistogram[bin]++;
-            }
-
-            if (aliveCount == 0)
-            {
-                cpuMinY = cpuMaxY = cpuAvgY = 0f;
-            }
-            else
-            {
-                cpuMinY = minY;
-                cpuMaxY = maxY;
-                cpuAvgY = (float)(sumY / aliveCount);
-            }
-
-            readbackInFlight = false;
-        });
-    }
-
-    /// <summary>
-    /// Convert mouse screen position to world position on the plane Z=0.
-    /// </summary>
-    Vector3 GetMouseWorldOnPlaneZ0(Vector2 mouseScreenPos)
-    {
-        Ray r = cam.ScreenPointToRay(mouseScreenPos);
-        Plane plane = new Plane(Vector3.forward, Vector3.zero);
-        return plane.Raycast(r, out float t) ? r.GetPoint(t) : Vector3.zero;
-    }
-
-    void OnGUI()
-    {
-        if (!enableCpuAnalysis) return;
-
-        GUILayout.BeginArea(new Rect(10, 10, 360, 220), GUI.skin.box);
-        GUILayout.Label("<b>CPU Analysis (async sample)</b>", new GUIStyle(GUI.skin.label) { richText = true });
-
-        GUILayout.Label($"Sample used: {lastSampleUsed} / {maxParticles}");
-        GUILayout.Label($"Spawned (counter): {lastSpawnedThisFrame}");
-        GUILayout.Label($"Y min/avg/max: {cpuMinY:F2} / {cpuAvgY:F2} / {cpuMaxY:F2}");
-        GUILayout.Label($"Last readback+analysis: {lastAnalysisMs:F2} ms");
-
-        // Simple histogram bar text
-        if (cpuHistogram != null && cpuHistogram.Length > 0)
-        {
-            int maxBin = 1;
-            for (int i = 0; i < cpuHistogram.Length; i++) maxBin = Mathf.Max(maxBin, cpuHistogram[i]);
-
-            GUILayout.Label("Histogram (alive by Y):");
-            for (int i = 0; i < cpuHistogram.Length; i++)
-            {
-                int bar = Mathf.RoundToInt(20f * cpuHistogram[i] / maxBin);
-                GUILayout.Label($"{i:00}: " + new string('|', bar));
-            }
+            Vector3 s = rainZone.lossyScale;
+            float horizontalScale = (Mathf.Abs(s.x) + Mathf.Abs(s.z)) * 0.5f;
+            finalRadius *= horizontalScale;
+            finalThickness *= Mathf.Abs(s.y);
         }
 
-        GUILayout.EndArea();
+        Vector3 center = t.position;
+        float emitY = center.y - finalThickness * 0.5f;
+        Vector3 discCenter = new Vector3(center.x, emitY, center.z);
+
+        DrawHorizontalCircle(discCenter, finalRadius, new Color(0.2f, 0.6f, 1f, 0.95f));
+
+        Gizmos.color = new Color(0.4f, 0.8f, 1f, 0.2f);
+        Gizmos.DrawLine(center, discCenter);
+    }
+
+    void DrawHorizontalCircle(Vector3 center, float radius, Color color)
+    {
+        Gizmos.color = color;
+        const int steps = 64;
+        Vector3 prev = center + new Vector3(radius, 0f, 0f);
+
+        for (int i = 1; i <= steps; i++)
+        {
+            float a = (i / (float)steps) * Mathf.PI * 2f;
+            Vector3 p = center + new Vector3(Mathf.Cos(a) * radius, 0f, Mathf.Sin(a) * radius);
+            Gizmos.DrawLine(prev, p);
+            prev = p;
+        }
     }
 
     void OnDestroy()

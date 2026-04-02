@@ -1,19 +1,11 @@
-// Renders GPU particles as camera-facing billboards.
-// Input is a StructuredBuffer<Particle> indexed by SV_InstanceID.
-// Geometry shader expands each particle into a quad; fragment draws a soft circle.
-
-Shader "Custom/ParticleRender" 
+Shader "Custom/ParticleRenderRain"
 {
     Properties
     {
-        _BillboardSize ("Billboard Size (world)", Float) = 0.035
-        _Softness ("Edge Softness", Range(0.001, 0.5)) = 0.08
-        _Color ("Color", Color) = (1,1,1,1)
-        _UseHeightGradient ("Use Height Gradient (0/1)", Float) = 0
-        _GradientMinY ("Gradient Min Y", Float) = 0
-        _GradientMaxY ("Gradient Max Y", Float) = 3
-        _LowColor ("Low Color", Color) = (0,0.6,1,1)
-        _HighColor ("High Color", Color) = (1,0.2,0.2,1)
+        _DropWidth ("Drop Width", Float) = 0.012
+        _DropLength ("Drop Length", Float) = 0.20
+        _Color ("Rain Color", Color) = (0.72,0.82,0.95,0.22)
+        _AlphaBoost ("Alpha Boost", Float) = 1.0
     }
 
     SubShader
@@ -25,11 +17,9 @@ Shader "Custom/ParticleRender"
             Cull Off
             ZWrite Off
             ZTest LEqual
-            
-            Blend One OneMinusSrcAlpha
+            Blend SrcAlpha OneMinusSrcAlpha
 
             HLSLPROGRAM
-            
             #pragma target 5.0
             #pragma require geometry
             #pragma vertex vert
@@ -38,14 +28,10 @@ Shader "Custom/ParticleRender"
 
             #include "UnityCG.cginc"
 
-            float _BillboardSize;
-            float _Softness;
+            float _DropWidth;
+            float _DropLength;
             float4 _Color;
-            float _UseHeightGradient;
-            float _GradientMinY;
-            float _GradientMaxY;
-            float4 _LowColor;
-            float4 _HighColor;
+            float _AlphaBoost;
 
             struct Particle
             {
@@ -64,9 +50,9 @@ Shader "Custom/ParticleRender"
 
             struct v2g
             {
-                float4 posCS : SV_POSITION;
                 float3 posWS : TEXCOORD0;
-                float  life  : TEXCOORD1;
+                float3 velWS : TEXCOORD1;
+                float  life  : TEXCOORD2;
             };
 
             struct g2f
@@ -74,52 +60,56 @@ Shader "Custom/ParticleRender"
                 float4 posCS : SV_POSITION;
                 float2 uv    : TEXCOORD0;
                 float  life  : TEXCOORD1;
-                float heightT : TEXCOORD2;
+                float3 velWS : TEXCOORD2;
             };
 
             v2g vert(appdata v)
             {
                 v2g o;
                 Particle p = _Particles[v.instanceID];
-
                 o.posWS = p.pos;
-                o.life  = p.life;
-                o.posCS = UnityWorldToClipPos(float4(p.pos, 1.0));
+                o.velWS = p.vel;
+                o.life = p.life;
                 return o;
             }
 
             [maxvertexcount(4)]
             void geom(point v2g IN[1], inout TriangleStream<g2f> triStream)
             {
-                float life = IN[0].life;
-                if (life <= 0.0) return;
+                if (IN[0].life <= 0.0) return;
 
                 float3 center = IN[0].posWS;
-                float denom = max(1e-5, (_GradientMaxY - _GradientMinY));
-                float t = saturate((center.y - _GradientMinY) / denom);
-                
-                float3 camRight = UNITY_MATRIX_I_V._m00_m01_m02;
-                float3 camUp    = UNITY_MATRIX_I_V._m10_m11_m12;
+                float3 vel = IN[0].velWS;
 
-                float size = _BillboardSize;
-                float3 right = camRight * size;
-                float3 up    = camUp    * size;
+                float speed = max(length(vel), 0.001);
+                float3 dir = normalize(vel);
 
-                float3 p0 = center - right - up; // BL
-                float3 p1 = center + right - up; // BR
-                float3 p2 = center - right + up; // TL
-                float3 p3 = center + right + up; // TR
+                float3 camFwd = normalize(_WorldSpaceCameraPos.xyz - center);
+                float3 right = normalize(cross(camFwd, dir));
+
+                // if dir and cam are too parallel, fallback
+                if (dot(right, right) < 1e-5)
+                    right = float3(1, 0, 0);
+
+                float width = _DropWidth;
+                float lengthMul = saturate(speed / 18.0);
+                float lengthWS = _DropLength * lerp(0.7, 1.6, lengthMul);
+
+                float3 halfRight = right * width;
+                float3 halfDir = dir * lengthWS * 0.5;
+
+                float3 p0 = center - halfRight - halfDir;
+                float3 p1 = center + halfRight - halfDir;
+                float3 p2 = center - halfRight + halfDir;
+                float3 p3 = center + halfRight + halfDir;
 
                 g2f o;
-                o.life = life;
+                o.life = IN[0].life;
+                o.velWS = vel;
 
-                o.heightT = t;
                 o.uv = float2(0, 0); o.posCS = UnityWorldToClipPos(float4(p0, 1)); triStream.Append(o);
-                o.heightT = t;
                 o.uv = float2(1, 0); o.posCS = UnityWorldToClipPos(float4(p1, 1)); triStream.Append(o);
-                o.heightT = t;
                 o.uv = float2(0, 1); o.posCS = UnityWorldToClipPos(float4(p2, 1)); triStream.Append(o);
-                o.heightT = t;
                 o.uv = float2(1, 1); o.posCS = UnityWorldToClipPos(float4(p3, 1)); triStream.Append(o);
 
                 triStream.RestartStrip();
@@ -127,25 +117,27 @@ Shader "Custom/ParticleRender"
 
             half4 frag(g2f i) : SV_Target
             {
-                float2 p = i.uv * 2.0 - 1.0;
-                float r2 = dot(p, p);
+                // thin raindrop streak
+                float2 uv = i.uv;
 
-                // circle cut
-                clip(1.0 - r2);
+                // soft side fade
+                float side = 1.0 - abs(uv.x * 2.0 - 1.0);
+                side = smoothstep(0.0, 0.8, side);
 
-                float r = sqrt(r2);
-                float a = 1.0 - smoothstep(1.0 - _Softness, 1.0, r);
-                a *= saturate(i.life);
+                // top/bottom fade
+                float along = sin(uv.y * 3.14159265);
+                along = saturate(along);
 
-                float3 baseCol = _Color.rgb;
+                float alpha = side * along;
+                alpha *= saturate(i.life * 2.0);
+                alpha *= _Color.a * _AlphaBoost;
 
-                if (_UseHeightGradient > 0.5)
-                {
-                    baseCol = lerp(_LowColor.rgb, _HighColor.rgb, i.heightT);
-                }
+                float3 col = _Color.rgb;
 
-                // premultiplied
-                return half4(baseCol * a, a);
+                // slightly brighter center
+                col *= lerp(0.85, 1.15, side);
+
+                return half4(col, alpha);
             }
             ENDHLSL
         }

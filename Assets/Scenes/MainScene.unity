@@ -401,6 +401,136 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
+--- !u!1 &446729283
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 446729284}
+  - component: {fileID: 446729285}
+  m_Layer: 0
+  m_Name: RainZone
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &446729284
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 446729283}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 694494658}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &446729285
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 446729283}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 50, y: 50, z: 0.1}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!1001 &694494657
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 1364293144122887703, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: ShapeModule.type
+      value: 8
+      objectReference: {fileID: 0}
+    - target: {fileID: 1364293144122887703, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: ShapeModule.radius.value
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1364293144122887703, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: ShapeModule.radiusThickness
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4440609623798700971, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_Name
+      value: CloudParticleSystem
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -2.41762
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 90.8
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 3.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: -90
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 446729284}
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+--- !u!4 &694494658 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 6314594535788098832, guid: d98b41da2fe42e64aa8b2c094d6bfb99, type: 3}
+  m_PrefabInstance: {fileID: 694494657}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -649,32 +779,34 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e2abd8a26b5a8cf4abab38483b62d3b1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GpuParticles
-  cam: {fileID: 330585545}
   simCS: {fileID: 7200000, guid: 68412091790ca764f942cb6b30fbaf5b, type: 3}
   renderMat: {fileID: 2100000, guid: 2963d2a3f582a2a49b2f747607c75f61, type: 2}
   maxParticles: 1000000
-  spawnPerFrameWhileHeld: 200
+  rainZone: {fileID: 446729284}
+  rainRadius: 29.24
+  useRainZoneScale: 1
+  cloudThickness: 2
+  emitContinuously: 1
+  spawnPerFrame: 1200
   spawnLife: 5
-  spawnSpeed: 3
-  spawnRadius: 0.05
+  rainFallSpeed: 18
+  spawnJitterY: 0.15
+  speedRandomness: 2.5
+  wind: {x: 7.06, y: 0, z: 0.25}
   gravity: {x: 0, y: -9.8, z: 0}
   damping: 0.15
+  killBelowY: -2
+  collideWithFloor: 1
   floorY: 0
   restitution: 0.6
   groundFriction: 0.05
   spheres:
   - {x: 0, y: 0, z: 0, w: 1.5}
-  useHeightGradient: 1
-  gradientMinY: 0
-  gradientMaxY: 6
-  lowColor: {r: 0.061502934, g: 0, b: 1, a: 1}
-  highColor: {r: 0, g: 0.9264636, b: 1, a: 1}
-  enableCpuAnalysis: 1
-  analysisInterval: 0.25
-  analysisSampleCount: 2048
-  histogramBins: 16
-  histMinY: 0
-  histMaxY: 6
+  rainColor: {r: 0.72, g: 0.82, b: 0.95, a: 0.22}
+  dropWidth: 0.012
+  dropLength: 0.2
+  alphaBoost: 1
+  drawRainZoneGizmo: 1
 --- !u!4 &1319107848
 Transform:
   m_ObjectHideFlags: 0
@@ -910,3 +1042,4 @@ SceneRoots:
   - {fileID: 1743408884}
   - {fileID: 901477511}
   - {fileID: 1384748864}
+  - {fileID: 694494657}
