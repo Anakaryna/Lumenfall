@@ -1,4 +1,5 @@
 using UnityEngine;
+using Enviro;
 
 public class WeatherSystem : MonoBehaviour
 {
@@ -18,8 +19,13 @@ public class WeatherSystem : MonoBehaviour
     [Header("Current State")]
     public WeatherState currentState = WeatherState.Sunny;
 
+    [Header("Enviro Sync")]
+    [Tooltip("When enabled, this WeatherSystem mirrors Enviro weather changes.")]
+    public bool syncWithEnviro = true;
+
     [Header("Debug Keys")]
-    public bool enableDebugKeys = true;
+    [Tooltip("Only use these if you want to force WeatherSystem visuals manually. If Enviro is your source of truth, leave this off.")]
+    public bool enableDebugKeys = false;
     public KeyCode sunnyKey = KeyCode.Alpha1;
     public KeyCode cloudyKey = KeyCode.Alpha2;
     public KeyCode rainKey = KeyCode.Alpha3;
@@ -27,7 +33,33 @@ public class WeatherSystem : MonoBehaviour
 
     void Start()
     {
+        // Apply inspector default until Enviro fires its first weather event.
         ApplyState(currentState, true);
+    }
+
+    void OnEnable()
+    {
+        if (!syncWithEnviro)
+            return;
+
+        if (EnviroManager.instance != null)
+        {
+            EnviroManager.instance.OnWeatherChanged += OnEnviroWeatherChanged;
+            Debug.Log("[WeatherSystem] Subscribed to Enviro weather events.");
+        }
+        else
+        {
+            Debug.LogWarning("[WeatherSystem] Enviro sync enabled, but EnviroManager.instance was not found.");
+        }
+    }
+
+    void OnDisable()
+    {
+        if (syncWithEnviro && EnviroManager.instance != null)
+        {
+            EnviroManager.instance.OnWeatherChanged -= OnEnviroWeatherChanged;
+            Debug.Log("[WeatherSystem] Unsubscribed from Enviro weather events.");
+        }
     }
 
     void Update()
@@ -45,6 +77,41 @@ public class WeatherSystem : MonoBehaviour
 
         if (Input.GetKeyDown(snowKey))
             SetSnow();
+    }
+
+    private void OnEnviroWeatherChanged(EnviroWeatherType currentWeatherType)
+    {
+        ApplyState(MapEnviroWeather(currentWeatherType));
+
+        Debug.Log($"[WeatherSystem] Enviro weather changed to '{(currentWeatherType != null ? currentWeatherType.name : "N/A")}', mapped to '{currentState}'.");
+    }
+
+    private WeatherState MapEnviroWeather(EnviroWeatherType currentWeatherType)
+    {
+        if (currentWeatherType == null)
+            return WeatherState.Sunny;
+
+        switch (currentWeatherType.name)
+        {
+            case "Clear Sky":
+                return WeatherState.Sunny;
+
+            case "Cloudy 1":
+            case "Cloudy 2":
+            case "Cloudy 3":
+            case "Foggy":
+                return WeatherState.Cloudy;
+
+            case "Rain":
+                return WeatherState.Rain;
+
+            case "Snow":
+                return WeatherState.Snow;
+
+            default:
+                Debug.LogWarning($"[WeatherSystem] Unhandled Enviro weather type '{currentWeatherType.name}'. Falling back to Sunny visuals.");
+                return WeatherState.Sunny;
+        }
     }
 
     public void SetSunny()
